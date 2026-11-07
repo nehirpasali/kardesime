@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Yönetici</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Giriş -->
+<div class="login" id="loginBox" hidden>
+  <h1>Yönetici girişi</h1>
+  <div class="field"><label for="em">E-posta</label><input type="email" id="em" autocomplete="username"></div>
+  <div class="field"><label for="pw">Şifre</label><input type="password" id="pw" autocomplete="current-password"></div>
+  <button class="btn" id="loginBtn" style="width:100%">Giriş yap</button>
+  <p class="msg" id="loginMsg"></p>
+</div>
+
+<!-- Panel -->
+<div class="wrap" id="panel" hidden>
+  <header class="top">
+    <div>
+      <h1>Yönetici paneli</h1>
+      <p class="sub" id="count"></p>
+    </div>
+    <button class="icon-btn" id="logout" aria-label="Çıkış yap" title="Çıkış yap">
+      <svg viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></svg>
+    </button>
+  </header>
+  <div class="filters" id="filters"></div>
+  <main id="list" style="margin-top:14px"></main>
+</div>
+
+<button class="fab" id="fab" aria-label="Yeni görev ekle" hidden>
+  <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+</button>
+
+<!-- Yeni görev penceresi -->
+<div class="modal-back" id="mb">
+  <div class="modal" role="dialog" aria-labelledby="mt">
+    <h2 id="mt">Yeni görev</h2>
+    <div class="field">
+      <label>Dosya (JPG, PNG veya PDF)</label>
+      <label class="drop" id="dropLabel">
+        <span id="dropText">Dosya seçmek için dokun</span>
+        <input type="file" id="file" accept=".jpg,.jpeg,.png,application/pdf,image/jpeg,image/png">
+      </label>
+    </div>
+    <div class="field"><label for="course">Ders</label><select id="course"></select></div>
+    <div class="field"><label for="due">Bitiş tarihi</label><input type="date" id="due"></div>
+    <div class="field"><label for="ttl">Başlık</label><input type="text" id="ttl" maxlength="120" placeholder="Örn. 3. ünite test soruları"></div>
+    <div class="field" id="gcField" hidden>
+      <label class="checkrow"><input type="checkbox" id="gc" checked> Google Takvim'e ekle, Beril'e davet gitsin</label>
+    </div>
+    <div class="bar" id="bar"><i></i></div>
+    <p class="msg" id="msg"></p>
+    <div class="row">
+      <button class="btn ghost" id="cancel">Vazgeç</button>
+      <button class="btn" id="save">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+import { firebaseConfig, COURSES, GOOGLE_CLIENT_ID, BERIL_EMAIL, daysLeft, esc, dueLabel, dateText } from "./firebase-config.js";
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app), db = getFirestore(app), storage = getStorage(app);
+const $ = id => document.getElementById(id);
+
+// ---- Google Takvim (isteğe bağlı: config'te CLIENT_ID ve e-posta doluysa çalışır)
+const GCAL = !!(GOOGLE_CLIENT_ID && BERIL_EMAIL);
+let gTok = null, gExp = 0;
+const loadGsi = () => new Promise((res, rej) => {
+  if (window.google?.accounts?.oauth2) return res();
+  const sc = document.createElement("script");
+  sc.src = "https://accounts.google.com/gsi/client"; sc.onload = res; sc.onerror = rej;
+  document.head.appendChild(sc);
+});
+async function getToken() {
+  if (gTok && Date.now() < gExp) return gTok;
+  await loadGsi();
+  return new Promise((res, rej) => {
+    google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: "https://www.googleapis.com/auth/calendar.events",
+      callback: r => { if (r.error) return rej(r); gTok = r.access_token; gExp = Date.now() + (r.expires_in - 60) * 1000; res(gTok); },
+      error_callback: rej
+    }).requestAccessToken();
+  });
+}
+const nextDay = str => {
+  const [y, m, d] = str.split("-").map(Number);
+  const x = new Date(y, m - 1, d + 1);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+};
+async function createEvent(tok, { title, course, due, fileUrl }) {
+  const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary: `${course}: ${title}`,
+      description: `Ödev dosyası: ${fileUrl}`,
+      start: { date: due }, end: { date: nextDay(due) },
+      attendees: [{ email: BERIL_EMAIL }],
+      reminders: { useDefault: false, overrides: [
+        { method: "popup", minutes: 3780 },
+        { method: "popup", minutes: 900 },
+        { method: "email", minutes: 900 }
+      ] }
+    })
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return (await r.json()).id;
+}
+
+let tasks = [], filter = "all", unsub = null;
+
+// ---- Giriş / çıkış
+onAuthStateChanged(auth, user => {
+  $("loginBox").hidden = !!user;
+  $("panel").hidden = !user;
+  $("fab").hidden = !user;
+  if (user) {
+    unsub = onSnapshot(query(collection(db, "tasks"), orderBy("due", "asc")), s => {
+      tasks = s.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    });
+  } else if (unsub) { unsub(); unsub = null; }
+});
+const login = async () => {
+  $("loginMsg").textContent = "";
+  try { await signInWithEmailAndPassword(auth, $("em").value.trim(), $("pw").value); }
+  catch { $("loginMsg").textContent = "E-posta veya şifre hatalı."; }
+};
+$("loginBtn").onclick = login;
+$("pw").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+$("logout").onclick = () => signOut(auth);
+
+// ---- Liste
+function render() {
+  $("count").textContent = `${tasks.length} görev`;
+  $("filters").innerHTML = ["all", ...COURSES].map(c =>
+    `<button class="${filter === c ? "active" : ""}" data-f="${esc(c)}">${c === "all" ? "Tümü" : esc(c)}</button>`).join("");
+  const shown = tasks.filter(t => filter === "all" || t.course === filter);
+  $("list").innerHTML = shown.length ? shown.map(t => {
+    const n = daysLeft(t.due);
+    return `<article class="card ${n < 0 ? "done" : ""}">
+      <div class="body">
+        <div class="t">${esc(t.title)}</div>
+        <div class="meta">
+          <span class="chip">${esc(t.course)}</span>
+          <span class="chip ${n >= 0 && n <= 2 ? "soon" : "file"}">${dueLabel(n)} · ${dateText(t.due)}</span>
+          ${t.fileUrl ? `<a class="chip file" href="${esc(t.fileUrl)}" target="_blank" rel="noopener" style="text-decoration:none">Dosya</a>` : ""}
+          ${t.gcalId ? '<span class="chip">Takvimde</span>' : ""}
+          <button class="del" data-del="${t.id}">Sil</button>
+        </div>
+      </div>
+    </article>`;
+  }).join("") : `<div class="empty"><b>Henüz görev yok</b>Sağ alttaki + ile ilk görevi ekle.</div>`;
+}
+$("filters").addEventListener("click", e => {
+  const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; render(); }
+});
+$("list").addEventListener("click", async e => {
+  const b = e.target.closest("[data-del]"); if (!b) return;
+  const t = tasks.find(x => x.id === b.dataset.del);
+  if (!t || !confirm(`"${t.title}" silinsin mi?`)) return;
+  if (t.gcalId && GCAL) {
+    try {
+      const tk = await getToken();
+      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${t.gcalId}?sendUpdates=all`, { method: "DELETE", headers: { Authorization: `Bearer ${tk}` } });
+    } catch (err) { console.warn(err); }
+  }
+  try { if (t.filePath) await deleteObject(ref(storage, t.filePath)); } catch (err) { console.warn(err); }
+  await deleteDoc(doc(db, "tasks", t.id));
+});
+
+// ---- Yeni görev penceresi
+$("course").innerHTML = COURSES.map(c => `<option>${esc(c)}</option>`).join("");
+$("gcField").hidden = !GCAL;
+const open = () => { $("mb").classList.add("open"); if (GCAL) loadGsi().catch(() => {}); };
+const close = () => {
+  $("mb").classList.remove("open");
+  $("file").value = ""; $("ttl").value = ""; $("due").value = "";
+  $("dropText").textContent = "Dosya seçmek için dokun";
+  $("msg").textContent = ""; $("bar").style.display = "none"; $("bar").firstElementChild.style.width = "0";
+  $("save").disabled = false;
+};
+$("fab").onclick = open;
+$("cancel").onclick = close;
+$("mb").addEventListener("click", e => { if (e.target === $("mb")) close(); });
+$("file").onchange = () => {
+  const f = $("file").files[0];
+  $("dropText").textContent = f ? f.name : "Dosya seçmek için dokun";
+  if (f && !$("ttl").value) $("ttl").value = f.name.replace(/\.[^.]+$/, "");
+};
+
+$("save").onclick = async () => {
+  const f = $("file").files[0], title = $("ttl").value.trim(), due = $("due").value, course = $("course").value;
+  const msg = $("msg"); msg.textContent = "";
+  if (!f) return msg.textContent = "Bir dosya seç.";
+  if (!/^(image\/(jpeg|png)|application\/pdf)$/.test(f.type)) return msg.textContent = "Sadece JPG, PNG veya PDF yükleyebilirsin.";
+  if (f.size > 15 * 1024 * 1024) return msg.textContent = "Dosya 15 MB'tan küçük olmalı.";
+  if (!title) return msg.textContent = "Bir başlık yaz.";
+  if (!due) return msg.textContent = "Bitiş tarihini seç.";
+
+  let tok = null;
+  if (GCAL && $("gc").checked) {
+    try { tok = await getToken(); }
+    catch (err) { console.warn(err); return msg.textContent = "Google Takvim izni alınamadı. İzinsiz devam etmek için kutunun işaretini kaldır."; }
+  }
+  $("save").disabled = true;
+  $("bar").style.display = "block";
+  const ext = f.type === "application/pdf" ? "pdf" : f.type === "image/png" ? "png" : "jpg";
+  const path = `tasks/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const task = uploadBytesResumable(ref(storage, path), f, { contentType: f.type });
+  task.on("state_changed",
+    s => { $("bar").firstElementChild.style.width = (s.bytesTransferred / s.totalBytes * 100) + "%"; },
+    err => { console.error(err); msg.textContent = "Yükleme başarısız. Storage açık mı ve kurallar doğru mu?"; $("save").disabled = false; },
+    async () => {
+      try {
+        const fileUrl = await getDownloadURL(task.snapshot.ref);
+        let gcalId = null;
+        if (tok) {
+          try { gcalId = await createEvent(tok, { title, course, due, fileUrl }); }
+          catch (err) { console.warn(err); alert("Görev kaydedildi ama Google Takvim'e eklenemedi."); }
+        }
+        await addDoc(collection(db, "tasks"), {
+          title, course, due, fileUrl, filePath: path, fileType: ext === "pdf" ? "pdf" : "image",
+          fileName: f.name, gcalId, createdAt: serverTimestamp()
+        });
+        close();
+      } catch (err) { console.error(err); msg.textContent = "Kaydedilemedi. Firestore kurallarını kontrol et."; $("save").disabled = false; }
+    });
+};
+</script>
+</body>
+</html>

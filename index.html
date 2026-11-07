@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Görevlerim</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap wide">
+  <header class="top">
+    <div>
+      <h1><span id="title"></span><svg class="stars" id="stars" viewBox="0 0 24 24"><path d="M12 2l2.2 7.3L22 12l-7.8 2.7L12 22l-2.2-7.3L2 12l7.8-2.7z"/></svg></h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <button class="icon-btn" id="menuBtn" aria-label="Dersleri aç">
+      <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </header>
+
+  <div class="layout">
+    <aside class="side">
+      <div class="quote">
+        <svg viewBox="0 0 24 24"><path d="M12 2l2.2 7.3L22 12l-7.8 2.7L12 22l-2.2-7.3L2 12l7.8-2.7z"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M12 2l2.2 7.3L22 12l-7.8 2.7L12 22l-2.2-7.3L2 12l7.8-2.7z"/></svg>
+        <p id="quoteText"></p>
+      </div>
+      <section class="cal" aria-label="Takvim">
+        <div class="cal-head">
+          <button class="cal-nav" id="prev" aria-label="Önceki ay">‹</button>
+          <b id="calTitle"></b>
+          <button class="cal-nav" id="next" aria-label="Sonraki ay">›</button>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+      </section>
+    </aside>
+    <main id="list" class="rail"></main>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Dersler">
+  <h3>Dersler</h3>
+  <div id="nav"></div>
+</aside>
+
+<div class="lightbox" id="lb"><img alt=""></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, collection, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { firebaseConfig, COURSES, COURSE_COLORS, STUDENT_NAME, daysLeft, esc, dueLabel, dateText, parseDay } from "./firebase-config.js";
+import { QUOTES } from "./quotes.js";
+
+const db = getFirestore(initializeApp(firebaseConfig));
+const $ = id => document.getElementById(id);
+const colorOf = c => COURSE_COLORS[c] || "#7A8A99";
+const pad = n => String(n).padStart(2, "0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+const now = new Date();
+const hour = now.getHours();
+const greet = hour < 5 ? "İyi geceler" : hour < 12 ? "Günaydın" : hour < 18 ? "İyi günler" : hour < 22 ? "İyi akşamlar" : "İyi geceler";
+
+// Günün sözü: her gün bir sonraki söz
+const dayNum = Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
+$("quoteText").textContent = QUOTES[dayNum % QUOTES.length];
+
+let tasks = [];
+let view = "all";
+let showPast = false;
+let selDay = null;
+let vy = now.getFullYear(), vm = now.getMonth();
+let done = new Set();
+try { done = new Set(JSON.parse(localStorage.getItem("done") || "[]")); } catch {}
+
+onSnapshot(query(collection(db, "tasks"), orderBy("due", "asc")), snap => {
+  tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  render();
+}, err => {
+  $("list").innerHTML = `<div class="empty"><b>Görevler yüklenemedi</b>İnternet bağlantını kontrol et.</div>`;
+  console.error(err);
+});
+
+function render() {
+  renderNav();
+  renderCal();
+  const inCourse = view !== "all";
+  const mine = inCourse ? tasks.filter(t => t.course === view) : tasks;
+  const upcoming = mine.filter(t => daysLeft(t.due) >= 0);
+  const past = mine.filter(t => daysLeft(t.due) < 0).reverse();
+
+  $("title").textContent = inCourse ? view : `${greet} ${STUDENT_NAME}`;
+  $("stars").style.display = inCourse ? "none" : "";
+  const open = upcoming.filter(t => !done.has(t.id));
+  const today = open.filter(t => daysLeft(t.due) === 0).length;
+  $("sub").textContent = open.length
+    ? `${open.length} bekleyen görev${today ? `, ${today} tanesi bugün` : ""}`
+    : "Bekleyen görev yok";
+
+  const list = $("list");
+  list.classList.toggle("rail", !selDay);
+
+  // Takvimden bir gün seçildiyse sadece o günü göster
+  if (selDay) {
+    const dayTasks = mine.filter(t => t.due === selDay);
+    list.innerHTML = `<div class="day-pick"><span>${dateText(selDay)}</span><button id="clr">Tümünü göster</button></div>` +
+      (dayTasks.length ? dayTasks.map(card).join("") : `<div class="empty"><b>Bu gün boş</b>Bu tarihte görev yok.</div>`);
+    return;
+  }
+
+  let html = "";
+  if (!upcoming.length) {
+    html += `<div class="empty"><b>Her şey yolunda</b>${inCourse ? "Bu derste yaklaşan görev yok." : "Yaklaşan görev yok."}</div>`;
+  } else {
+    const groups = {};
+    upcoming.forEach(t => (groups[t.due] ||= []).push(t));
+    for (const due of Object.keys(groups).sort()) {
+      const n = daysLeft(due);
+      const cls = n === 0 ? "today" : n <= 2 ? "soon" : "";
+      html += `<section class="day ${cls}">
+        <div class="day-head"><h2>${dueLabel(n)}</h2><span>${dateText(due)}</span></div>
+        ${groups[due].map(card).join("")}
+      </section>`;
+    }
+  }
+  if (past.length) {
+    html += `<button class="past-toggle" id="pt">${showPast ? "Geçmiş görevleri gizle" : `Geçmiş görevler (${past.length})`}</button>`;
+    if (showPast) html += `<section class="day past">${past.map(card).join("")}</section>`;
+  }
+  list.innerHTML = html;
+}
+
+function gcalLink(t) {
+  const nx = parseDay(t.due); nx.setDate(nx.getDate() + 1);
+  return "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+    "&text=" + encodeURIComponent(`${t.course}: ${t.title}`) +
+    "&dates=" + t.due.replaceAll("-", "") + "/" + iso(nx).replaceAll("-", "") +
+    "&details=" + encodeURIComponent(t.fileUrl || "");
+}
+
+function card(t) {
+  const n = daysLeft(t.due);
+  const isDone = done.has(t.id);
+  const fileChip = t.fileUrl
+    ? `<button class="chip file" data-open="${esc(t.fileUrl)}" data-type="${esc(t.fileType)}">${t.fileType === "pdf" ? "PDF aç" : "Görseli aç"}</button>` : "";
+  const calChip = (!t.gcalId && n >= 0)
+    ? `<a class="chip file" href="${esc(gcalLink(t))}" target="_blank" rel="noopener">Takvime ekle</a>` : "";
+  return `<article class="card ${isDone ? "done" : ""}" style="--c:${colorOf(t.course)}">
+    <button class="check" data-done="${t.id}" aria-label="Tamamlandı olarak işaretle" aria-pressed="${isDone}">
+      <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+    </button>
+    <div class="body">
+      <div class="t">${esc(t.title)}</div>
+      <div class="meta">
+        <span class="chip course" style="--c:${colorOf(t.course)}">${esc(t.course)}</span>
+        ${n >= 0 && n <= 2 && !isDone ? `<span class="chip soon">${dueLabel(n)}</span>` : ""}
+        ${fileChip}${calChip}
+      </div>
+    </div>
+  </article>`;
+}
+
+function renderNav() {
+  const count = c => tasks.filter(t => t.course === c && daysLeft(t.due) >= 0 && !done.has(t.id)).length;
+  const allCount = tasks.filter(t => daysLeft(t.due) >= 0 && !done.has(t.id)).length;
+  const item = (key, label, n, color) =>
+    `<button class="nav-item ${view === key ? "active" : ""}" data-view="${esc(key)}"><span>${color ? `<i class="dot" style="--c:${color}"></i>` : ""}${esc(label)}</span><small>${n || ""}</small></button>`;
+  $("nav").innerHTML = item("all", "Tüm görevler", allCount) + `<div class="nav-sep"></div>` +
+    COURSES.map(c => item(c, c, count(c), colorOf(c))).join("");
+}
+
+function renderCal() {
+  const byDay = {};
+  tasks.forEach(t => (byDay[t.due] ||= []).push(t));
+  const first = new Date(vy, vm, 1);
+  const offset = (first.getDay() + 6) % 7; // hafta Pazartesi başlar
+  const dim = new Date(vy, vm + 1, 0).getDate();
+  const todayIso = iso(new Date());
+  let cells = ["Pt", "Sa", "Ça", "Pe", "Cu", "Ct", "Pz"].map(d => `<div class="cal-dow">${d}</div>`).join("");
+  for (let i = 0; i < offset; i++) cells += "<div></div>";
+  for (let d = 1; d <= dim; d++) {
+    const key = `${vy}-${pad(vm + 1)}-${pad(d)}`;
+    const list = byDay[key] || [];
+    const colors = [...new Set(list.map(t => colorOf(t.course)))].slice(0, 3);
+    cells += `<button class="cal-day ${key === todayIso ? "today" : ""} ${key === selDay ? "sel" : ""}" data-day="${key}" aria-label="${d}. gün${list.length ? `, ${list.length} görev` : ""}">
+      <span>${d}</span><span class="dots">${colors.map(c => `<i style="--c:${c}"></i>`).join("")}</span></button>`;
+  }
+  $("calTitle").textContent = first.toLocaleDateString("tr-TR", { month: "long", year: "numeric" });
+  $("calGrid").innerHTML = cells;
+}
+
+// Etkileşimler
+const drawer = $("drawer"), scrim = $("scrim");
+const toggleDrawer = o => { drawer.classList.toggle("open", o); scrim.classList.toggle("open", o); };
+$("menuBtn").onclick = () => toggleDrawer(true);
+scrim.onclick = () => toggleDrawer(false);
+document.addEventListener("keydown", e => { if (e.key === "Escape") { toggleDrawer(false); $("lb").classList.remove("open"); } });
+
+$("nav").addEventListener("click", e => {
+  const b = e.target.closest("[data-view]"); if (!b) return;
+  view = b.dataset.view; selDay = null; showPast = false;
+  toggleDrawer(false); render(); window.scrollTo(0, 0);
+});
+
+$("prev").onclick = () => { vm--; if (vm < 0) { vm = 11; vy--; } renderCal(); };
+$("next").onclick = () => { vm++; if (vm > 11) { vm = 0; vy++; } renderCal(); };
+$("calGrid").addEventListener("click", e => {
+  const b = e.target.closest("[data-day]"); if (!b) return;
+  selDay = selDay === b.dataset.day ? null : b.dataset.day;
+  render();
+  if (selDay) $("list").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+$("list").addEventListener("click", e => {
+  if (e.target.closest("#clr")) { selDay = null; render(); return; }
+  if (e.target.closest("#pt")) { showPast = !showPast; render(); return; }
+  const c = e.target.closest("[data-done]");
+  if (c) {
+    const id = c.dataset.done;
+    done.has(id) ? done.delete(id) : done.add(id);
+    try { localStorage.setItem("done", JSON.stringify([...done])); } catch {}
+    render(); return;
+  }
+  const o = e.target.closest("[data-open]");
+  if (o) {
+    if (o.dataset.type === "pdf") window.open(o.dataset.open, "_blank", "noopener");
+    else { $("lb").querySelector("img").src = o.dataset.open; $("lb").classList.add("open"); }
+  }
+});
+$("lb").onclick = () => $("lb").classList.remove("open");
+</script>
+</body>
+</html>
