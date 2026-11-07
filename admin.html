@@ -70,11 +70,10 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-import { firebaseConfig, COURSES, GOOGLE_CLIENT_ID, BERIL_EMAIL, daysLeft, esc, dueLabel, dateText } from "./firebase-config.js";
+import { firebaseConfig, COURSES, GOOGLE_CLIENT_ID, BERIL_EMAIL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET, daysLeft, esc, dueLabel, dateText } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app), db = getFirestore(app), storage = getStorage(app);
+const auth = getAuth(app), db = getFirestore(app);
 const $ = id => document.getElementById(id);
 
 // ---- Google Takvim (isteğe bağlı: config'te CLIENT_ID ve e-posta doluysa çalışır)
@@ -181,7 +180,6 @@ $("list").addEventListener("click", async e => {
       await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${t.gcalId}?sendUpdates=all`, { method: "DELETE", headers: { Authorization: `Bearer ${tk}` } });
     } catch (err) { console.warn(err); }
   }
-  try { if (t.filePath) await deleteObject(ref(storage, t.filePath)); } catch (err) { console.warn(err); }
   await deleteDoc(doc(db, "tasks", t.id));
 });
 
@@ -222,35 +220,39 @@ $("save").onclick = async () => {
   $("save").disabled = true;
   $("bar").style.display = "block";
   const ext = f.type === "application/pdf" ? "pdf" : f.type === "image/png" ? "png" : "jpg";
-  const path = `tasks/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const task = uploadBytesResumable(ref(storage, path), f, { contentType: f.type });
-  let started = false;
-  const watchdog = setTimeout(() => { if (!started) task.cancel(); }, 20000);
-  task.on("state_changed",
-    s => { if (s.bytesTransferred > 0) started = true; $("bar").firstElementChild.style.width = (s.bytesTransferred / s.totalBytes * 100) + "%"; },
-    err => {
-      console.error(err); clearTimeout(watchdog);
-      msg.textContent = err.code === "storage/canceled"
-        ? "Dosya Firebase Storage'a ulaşamadı. Storage kurulu mu? (Blaze plan gerekebilir)"
-        : "Yükleme başarısız (" + (err.code || err.message) + "). Storage açık mı ve kurallar doğru mu?";
-      $("bar").style.display = "none"; $("save").disabled = false;
-    },
-    async () => {
-      clearTimeout(watchdog);
-      try {
-        const fileUrl = await getDownloadURL(task.snapshot.ref);
-        let gcalId = null;
-        if (tok) {
-          try { gcalId = await createEvent(tok, { title, course, due, fileUrl }); }
-          catch (err) { console.warn(err); alert("Görev kaydedildi ama Google Takvim'e eklenemedi."); }
-        }
-        await addDoc(collection(db, "tasks"), {
-          title, course, due, fileUrl, filePath: path, fileType: ext === "pdf" ? "pdf" : "image",
-          fileName: f.name, gcalId, createdAt: serverTimestamp()
-        });
-        close();
-      } catch (err) { console.error(err); msg.textContent = "Kaydedilemedi. Firestore kurallarını kontrol et."; $("save").disabled = false; }
-    });
+  const fail = text => { msg.textContent = text; $("bar").style.display = "none"; $("save").disabled = false; };
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_UPLOAD_PRESET) return fail("firebase-config.js içindeki Cloudinary ayarları boş.");
+
+  const fd = new FormData();
+  fd.append("file", f);
+  fd.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`);
+  xhr.timeout = 120000;
+  xhr.upload.onprogress = e => { if (e.lengthComputable) $("bar").firstElementChild.style.width = (e.loaded / e.total * 100) + "%"; };
+  xhr.onerror = () => fail("Dosya yüklenemedi. İnternet bağlantını ve Cloudinary ayarlarını kontrol et.");
+  xhr.ontimeout = () => fail("Yükleme çok uzun sürdü, tekrar dene.");
+  xhr.onload = async () => {
+    let res = {};
+    try { res = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status < 200 || xhr.status >= 300 || !res.secure_url) {
+      return fail("Cloudinary hatası: " + (res.error?.message || xhr.status));
+    }
+    try {
+      const fileUrl = res.secure_url;
+      let gcalId = null;
+      if (tok) {
+        try { gcalId = await createEvent(tok, { title, course, due, fileUrl }); }
+        catch (err) { console.warn(err); alert("Görev kaydedildi ama Google Takvim'e eklenemedi."); }
+      }
+      await addDoc(collection(db, "tasks"), {
+        title, course, due, fileUrl, fileType: ext === "pdf" ? "pdf" : "image",
+        fileName: f.name, gcalId, createdAt: serverTimestamp()
+      });
+      close();
+    } catch (err) { console.error(err); fail("Kaydedilemedi. Firestore kurallarını kontrol et."); }
+  };
+  xhr.send(fd);
 };
 </script>
 </body>
