@@ -1,4 +1,4 @@
-// 1) Firebase Console > Proje Ayarları > "Web uygulaması ekle" kısmındaki config'i buraya yapıştır.
+// ---- Firebase ayarları (hazır)
 export const firebaseConfig = {
   apiKey: "AIzaSyAGbNtP8gDb3z_b4owdHaG9JbYmXS5vKi8",
   authDomain: "berilodev-684de.firebaseapp.com",
@@ -8,20 +8,36 @@ export const firebaseConfig = {
   appId: "1:442238824165:web:b6586770682355b9f3ee0c"
 };
 
-// 2) Dersleri istediğin gibi değiştir / ekle / çıkar.
+// ---- Öğrenci
+export const STUDENT_NAME = "Beril";
+
+// ---- Dersler ve renkleri (istediğin zaman değiştirebilirsin)
 export const COURSES = [
   "Matematik",
-  "Fizik",
-  "Kimya",
-  "Biyoloji",
   "Türkçe",
-  "Edebiyat",
-  "Tarih",
-  "Coğrafya",
-  "İngilizce"
+  "Fen Bilimleri",
+  "Din Kültürü",
+  "Sosyal Bilgiler",
+  "İngilizce",
+  "Almanca"
 ];
+export const COURSE_COLORS = {
+  "Matematik": "#5B8DEF",
+  "Türkçe": "#EF7B6C",
+  "Fen Bilimleri": "#4FB286",
+  "Din Kültürü": "#E0A93B",
+  "Sosyal Bilgiler": "#9A7BD6",
+  "İngilizce": "#E872A6",
+  "Almanca": "#3BA7B8"
+};
 
-// Yardımcı fonksiyonlar (iki sayfa da kullanıyor)
+// ---- Google Takvim bağlantısı (admin panelinde kullanılır)
+// Aşağıdaki iki satır doluysa, admin panelinde görev eklerken
+// "Google Takvim'e ekle" kutusu çıkar. Boş bırakırsan çıkmaz.
+export const GOOGLE_CLIENT_ID = "";   // Google Cloud > OAuth istemci kimliği
+export const BERIL_EMAIL = "";        // Beril'in Google hesabı (davet buraya gider)
+
+// ---- Yardımcı fonksiyonlar
 export function parseDay(str) {
   const [y, m, d] = str.split("-").map(Number);
   return new Date(y, m - 1, d);

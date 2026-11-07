@@ -54,6 +54,9 @@
     <div class="field"><label for="course">Ders</label><select id="course"></select></div>
     <div class="field"><label for="due">Bitiş tarihi</label><input type="date" id="due"></div>
     <div class="field"><label for="ttl">Başlık</label><input type="text" id="ttl" maxlength="120" placeholder="Örn. 3. ünite test soruları"></div>
+    <div class="field" id="gcField" hidden>
+      <label class="checkrow"><input type="checkbox" id="gc" checked> Google Takvim'e ekle, Beril'e davet gitsin</label>
+    </div>
     <div class="bar" id="bar"><i></i></div>
     <p class="msg" id="msg"></p>
     <div class="row">
@@ -68,11 +71,57 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
-import { firebaseConfig, COURSES, daysLeft, esc, dueLabel, dateText } from "./firebase-config.js";
+import { firebaseConfig, COURSES, GOOGLE_CLIENT_ID, BERIL_EMAIL, daysLeft, esc, dueLabel, dateText } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app), storage = getStorage(app);
 const $ = id => document.getElementById(id);
+
+// ---- Google Takvim (isteğe bağlı: config'te CLIENT_ID ve e-posta doluysa çalışır)
+const GCAL = !!(GOOGLE_CLIENT_ID && BERIL_EMAIL);
+let gTok = null, gExp = 0;
+const loadGsi = () => new Promise((res, rej) => {
+  if (window.google?.accounts?.oauth2) return res();
+  const sc = document.createElement("script");
+  sc.src = "https://accounts.google.com/gsi/client"; sc.onload = res; sc.onerror = rej;
+  document.head.appendChild(sc);
+});
+async function getToken() {
+  if (gTok && Date.now() < gExp) return gTok;
+  await loadGsi();
+  return new Promise((res, rej) => {
+    google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: "https://www.googleapis.com/auth/calendar.events",
+      callback: r => { if (r.error) return rej(r); gTok = r.access_token; gExp = Date.now() + (r.expires_in - 60) * 1000; res(gTok); },
+      error_callback: rej
+    }).requestAccessToken();
+  });
+}
+const nextDay = str => {
+  const [y, m, d] = str.split("-").map(Number);
+  const x = new Date(y, m - 1, d + 1);
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+};
+async function createEvent(tok, { title, course, due, fileUrl }) {
+  const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary: `${course}: ${title}`,
+      description: `Ödev dosyası: ${fileUrl}`,
+      start: { date: due }, end: { date: nextDay(due) },
+      attendees: [{ email: BERIL_EMAIL }],
+      reminders: { useDefault: false, overrides: [
+        { method: "popup", minutes: 3780 },
+        { method: "popup", minutes: 900 },
+        { method: "email", minutes: 900 }
+      ] }
+    })
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return (await r.json()).id;
+}
 
 let tasks = [], filter = "all", unsub = null;
 
@@ -112,6 +161,7 @@ function render() {
           <span class="chip">${esc(t.course)}</span>
           <span class="chip ${n >= 0 && n <= 2 ? "soon" : "file"}">${dueLabel(n)} · ${dateText(t.due)}</span>
           ${t.fileUrl ? `<a class="chip file" href="${esc(t.fileUrl)}" target="_blank" rel="noopener" style="text-decoration:none">Dosya</a>` : ""}
+          ${t.gcalId ? '<span class="chip">Takvimde</span>' : ""}
           <button class="del" data-del="${t.id}">Sil</button>
         </div>
       </div>
@@ -125,13 +175,20 @@ $("list").addEventListener("click", async e => {
   const b = e.target.closest("[data-del]"); if (!b) return;
   const t = tasks.find(x => x.id === b.dataset.del);
   if (!t || !confirm(`"${t.title}" silinsin mi?`)) return;
+  if (t.gcalId && GCAL) {
+    try {
+      const tk = await getToken();
+      await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${t.gcalId}?sendUpdates=all`, { method: "DELETE", headers: { Authorization: `Bearer ${tk}` } });
+    } catch (err) { console.warn(err); }
+  }
   try { if (t.filePath) await deleteObject(ref(storage, t.filePath)); } catch (err) { console.warn(err); }
   await deleteDoc(doc(db, "tasks", t.id));
 });
 
 // ---- Yeni görev penceresi
 $("course").innerHTML = COURSES.map(c => `<option>${esc(c)}</option>`).join("");
-const open = () => { $("mb").classList.add("open"); };
+$("gcField").hidden = !GCAL;
+const open = () => { $("mb").classList.add("open"); if (GCAL) loadGsi().catch(() => {}); };
 const close = () => {
   $("mb").classList.remove("open");
   $("file").value = ""; $("ttl").value = ""; $("due").value = "";
@@ -157,6 +214,11 @@ $("save").onclick = async () => {
   if (!title) return msg.textContent = "Bir başlık yaz.";
   if (!due) return msg.textContent = "Bitiş tarihini seç.";
 
+  let tok = null;
+  if (GCAL && $("gc").checked) {
+    try { tok = await getToken(); }
+    catch (err) { console.warn(err); return msg.textContent = "Google Takvim izni alınamadı. İzinsiz devam etmek için kutunun işaretini kaldır."; }
+  }
   $("save").disabled = true;
   $("bar").style.display = "block";
   const ext = f.type === "application/pdf" ? "pdf" : f.type === "image/png" ? "png" : "jpg";
@@ -168,9 +230,14 @@ $("save").onclick = async () => {
     async () => {
       try {
         const fileUrl = await getDownloadURL(task.snapshot.ref);
+        let gcalId = null;
+        if (tok) {
+          try { gcalId = await createEvent(tok, { title, course, due, fileUrl }); }
+          catch (err) { console.warn(err); alert("Görev kaydedildi ama Google Takvim'e eklenemedi."); }
+        }
         await addDoc(collection(db, "tasks"), {
           title, course, due, fileUrl, filePath: path, fileType: ext === "pdf" ? "pdf" : "image",
-          fileName: f.name, createdAt: serverTimestamp()
+          fileName: f.name, gcalId, createdAt: serverTimestamp()
         });
         close();
       } catch (err) { console.error(err); msg.textContent = "Kaydedilemedi. Firestore kurallarını kontrol et."; $("save").disabled = false; }

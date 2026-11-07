@@ -195,3 +195,62 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
 .filters button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ===== Beril sürümü: ek renkler, takvim, söz kartı ===== */
+:root { --lilac: #ECE6F7; --pink: #F8DDE6; --sparkle: #9A7BD6; }
+@media (prefers-color-scheme: dark) { :root { --lilac: #2A2536; --pink: #3A2530; --sparkle: #B79CF0; } }
+
+.wrap.wide { max-width: 1000px; }
+.layout { display: grid; gap: 22px; margin-top: 8px; }
+.side { display: flex; flex-direction: column; gap: 18px; }
+@media (min-width: 860px) {
+  .layout { grid-template-columns: 1fr 330px; align-items: start; }
+  .side { order: 2; position: sticky; top: 18px; }
+}
+
+.quote {
+  position: relative; background: var(--lilac); border-radius: var(--radius);
+  padding: 18px 18px 18px 58px; font-size: 1.02rem; line-height: 1.55;
+}
+.quote svg { position: absolute; left: 16px; top: 16px; width: 30px; height: 30px; fill: var(--sparkle); }
+.quote svg + svg { left: 38px; top: 14px; width: 12px; height: 12px; opacity: .7; }
+
+.cal {
+  position: relative; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 18px; padding: 24px 14px 14px; margin-top: 6px;
+}
+.cal::before {
+  content: ""; position: absolute; top: -10px; left: 50%; width: 90px; height: 20px;
+  transform: translateX(-50%) rotate(-2deg); border-radius: 3px; opacity: .95;
+  background: repeating-linear-gradient(45deg, var(--pink) 0 8px, var(--lilac) 8px 16px);
+}
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.cal-head b { font-weight: 600; text-transform: capitalize; }
+.cal-nav { width: 34px; height: 34px; border-radius: 50%; font-size: 1.2rem; line-height: 1; color: var(--muted); }
+.cal-nav:hover { background: var(--bg); color: var(--ink); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
+.cal-dow { font-size: .75rem; color: var(--muted); padding: 4px 0; }
+.cal-day {
+  aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; border-radius: 12px; font-size: .9rem;
+}
+.cal-day:hover { background: var(--bg); }
+.cal-day.today { background: var(--accent); color: var(--bg); font-weight: 600; border-radius: 50%; }
+.cal-day.sel { outline: 2px solid var(--sparkle); outline-offset: -2px; }
+.dots { display: flex; gap: 2px; height: 5px; }
+.dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--c); }
+
+.card { border-left: 4px solid var(--c, var(--line)); }
+.chip.course { background: color-mix(in srgb, var(--c) 20%, var(--surface)); color: var(--ink); }
+.chip.course::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--c); margin-right: 6px;
+}
+a.chip { text-decoration: none; }
+.nav-item span { display: flex; align-items: center; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); display: inline-block; margin-right: 10px; }
+.day-pick { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; font-weight: 600; }
+.day-pick button { font-weight: 400; font-size: .88rem; color: var(--accent); padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; }
+.stars { display: inline-block; width: 22px; height: 22px; margin-left: 6px; vertical-align: -3px; fill: var(--sparkle); }
+.field .checkrow { display: flex; gap: 10px; align-items: center; color: var(--ink); font-size: .95rem; margin: 0; }
+.checkrow input { width: 18px; height: 18px; accent-color: var(--accent); }
