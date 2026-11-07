@@ -36,6 +36,8 @@ export const COURSE_COLORS = {
 // "Google Takvim'e ekle" kutusu çıkar. Boş bırakırsan çıkmaz.
 export const GOOGLE_CLIENT_ID = "442238824165-iccatel1iu7sci7pktu7gesid5nmjqjm.apps.googleusercontent.com";   // Google Cloud > OAuth istemci kimliği
 export const BERIL_EMAIL = "pasaliberil13@gmail.com";        // Beril'in Google hesabı (davet buraya gider)
+export const CLOUDINARY_CLOUD_NAME = "jdbvyjr1";
+export const CLOUDINARY_UPLOAD_PRESET = "nv0rwrpc";
 
 // ---- Yardımcı fonksiyonlar
 export function parseDay(str) {
