@@ -226,7 +226,7 @@ $("save").onclick = async () => {
   const task = uploadBytesResumable(ref(storage, path), f, { contentType: f.type });
   task.on("state_changed",
     s => { $("bar").firstElementChild.style.width = (s.bytesTransferred / s.totalBytes * 100) + "%"; },
-    err => { console.error(err); msg.textContent = "Yükleme başarısız. Storage açık mı ve kurallar doğru mu?"; $("save").disabled = false; },
+    err => { console.error(err); msg.textContent = "Yükleme başarısız (" + (err.code || err.message) + "). Storage açık mı ve kurallar doğru mu?"; $("save").disabled = false; },
     async () => {
       try {
         const fileUrl = await getDownloadURL(task.snapshot.ref);
