@@ -34,7 +34,7 @@ export const COURSE_COLORS = {
 // ---- Google Takvim bağlantısı (admin panelinde kullanılır)
 // Aşağıdaki iki satır doluysa, admin panelinde görev eklerken
 // "Google Takvim'e ekle" kutusu çıkar. Boş bırakırsan çıkmaz.
-export const GOOGLE_CLIENT_ID = "";   // Google Cloud > OAuth istemci kimliği
+export const GOOGLE_CLIENT_ID = "442238824165-iccatel1iu7sci7pktu7gesid5nmjqjm.apps.googleusercontent.com";   // Google Cloud > OAuth istemci kimliği
 export const BERIL_EMAIL = "pasaliberil13@gmail.com";        // Beril'in Google hesabı (davet buraya gider)
 
 // ---- Yardımcı fonksiyonlar
