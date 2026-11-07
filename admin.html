@@ -224,10 +224,19 @@ $("save").onclick = async () => {
   const ext = f.type === "application/pdf" ? "pdf" : f.type === "image/png" ? "png" : "jpg";
   const path = `tasks/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const task = uploadBytesResumable(ref(storage, path), f, { contentType: f.type });
+  let started = false;
+  const watchdog = setTimeout(() => { if (!started) task.cancel(); }, 20000);
   task.on("state_changed",
-    s => { $("bar").firstElementChild.style.width = (s.bytesTransferred / s.totalBytes * 100) + "%"; },
-    err => { console.error(err); msg.textContent = "Yükleme başarısız (" + (err.code || err.message) + "). Storage açık mı ve kurallar doğru mu?"; $("save").disabled = false; },
+    s => { if (s.bytesTransferred > 0) started = true; $("bar").firstElementChild.style.width = (s.bytesTransferred / s.totalBytes * 100) + "%"; },
+    err => {
+      console.error(err); clearTimeout(watchdog);
+      msg.textContent = err.code === "storage/canceled"
+        ? "Dosya Firebase Storage'a ulaşamadı. Storage kurulu mu? (Blaze plan gerekebilir)"
+        : "Yükleme başarısız (" + (err.code || err.message) + "). Storage açık mı ve kurallar doğru mu?";
+      $("bar").style.display = "none"; $("save").disabled = false;
+    },
     async () => {
+      clearTimeout(watchdog);
       try {
         const fileUrl = await getDownloadURL(task.snapshot.ref);
         let gcalId = null;
