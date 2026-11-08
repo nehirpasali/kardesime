@@ -5,9 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>Yönetici</title>
+<script>
+(function(){try{var t=localStorage.getItem("theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}})();
+function toggleTheme(){var r=document.documentElement;var c=r.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");var n=c==="dark"?"light":"dark";r.setAttribute("data-theme",n);try{localStorage.setItem("theme",n)}catch(e){}}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -28,22 +32,31 @@
       <h1>Yönetici paneli</h1>
       <p class="sub" id="count"></p>
     </div>
-    <button class="icon-btn" id="logout" aria-label="Çıkış yap" title="Çıkış yap">
-      <svg viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></svg>
-    </button>
+    <div class="top-actions">
+      <button class="icon-btn" id="schedBtn" aria-label="Ders programı" title="Ders programı">
+        <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
+      </button>
+      <button class="icon-btn theme-btn" onclick="toggleTheme()" aria-label="Aydınlık veya karanlık mod" title="Tema">
+        <svg class="moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+        <svg class="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <button class="icon-btn" id="logout" aria-label="Çıkış yap" title="Çıkış yap">
+        <svg viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></svg>
+      </button>
+    </div>
   </header>
   <div class="filters" id="filters"></div>
   <main id="list" style="margin-top:14px"></main>
 </div>
 
-<button class="fab" id="fab" aria-label="Yeni görev ekle" hidden>
+<button class="fab" id="fab" aria-label="Yeni içerik ekle" hidden>
   <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
 </button>
 
-<!-- Yeni görev penceresi -->
+<!-- Yeni içerik penceresi -->
 <div class="modal-back" id="mb">
   <div class="modal" role="dialog" aria-labelledby="mt">
-    <h2 id="mt">Yeni görev</h2>
+    <h2 id="mt">Yeni içerik</h2>
     <div class="field">
       <label>Dosya (JPG, PNG veya PDF)</label>
       <label class="drop" id="dropLabel">
@@ -52,7 +65,8 @@
       </label>
     </div>
     <div class="field"><label for="course">Ders</label><select id="course"></select></div>
-    <div class="field"><label for="due">Bitiş tarihi</label><input type="date" id="due"></div>
+    <div class="field"><label for="kind">İçerik türü</label><select id="kind"></select></div>
+    <div class="field"><label for="due" id="dueLbl">Bitiş tarihi</label><input type="date" id="due"></div>
     <div class="field"><label for="ttl">Başlık</label><input type="text" id="ttl" maxlength="120" placeholder="Örn. 3. ünite test soruları"></div>
     <div class="field" id="gcField" hidden>
       <label class="checkrow"><input type="checkbox" id="gc" checked> Google Takvim'e ekle, Beril'e davet gitsin</label>
@@ -66,11 +80,27 @@
   </div>
 </div>
 
+<!-- Ders programı penceresi -->
+<div class="modal-back" id="sb">
+  <div class="modal" role="dialog" aria-labelledby="st">
+    <h2 id="st">Ders programı</h2>
+    <div class="filters" id="dayTabs" style="padding-top:0"></div>
+    <div id="slots" style="margin-top:14px"></div>
+    <datalist id="lessonList"></datalist>
+    <p class="msg" id="smsg"></p>
+    <div class="row">
+      <button class="btn ghost" id="sCancel">Kapat</button>
+      <button class="btn" id="sSave">Kaydet</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, COURSES, GOOGLE_CLIENT_ID, BERIL_EMAIL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET, daysLeft, esc, dueLabel, dateText } from "./firebase-config.js";
+import { KINDS, SCHEDULE_SLOTS, EXTRA_LESSONS, DAY_NAMES, hasDue, kindOf } from "./extras.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
@@ -102,13 +132,13 @@ const nextDay = str => {
   const x = new Date(y, m - 1, d + 1);
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
 };
-async function createEvent(tok, { title, course, due, fileUrl }) {
+async function createEvent(tok, { title, course, kind, due, fileUrl }) {
   const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all", {
     method: "POST",
     headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      summary: `${course}: ${title}`,
-      description: `Ödev dosyası: ${fileUrl}`,
+      summary: kind === "Ödev" ? `${course}: ${title}` : `${course} (${kind}): ${title}`,
+      description: `Dosya: ${fileUrl}`,
       start: { date: due }, end: { date: nextDay(due) },
       attendees: [{ email: BERIL_EMAIL }],
       reminders: { useDefault: false, overrides: [
@@ -130,7 +160,7 @@ onAuthStateChanged(auth, user => {
   $("panel").hidden = !user;
   $("fab").hidden = !user;
   if (user) {
-    unsub = onSnapshot(query(collection(db, "tasks"), orderBy("due", "asc")), s => {
+    unsub = onSnapshot(collection(db, "tasks"), s => {
       tasks = s.docs.map(d => ({ id: d.id, ...d.data() }));
       render();
     });
@@ -147,25 +177,28 @@ $("logout").onclick = () => signOut(auth);
 
 // ---- Liste
 function render() {
-  $("count").textContent = `${tasks.length} görev`;
+  $("count").textContent = `${tasks.length} içerik`;
   $("filters").innerHTML = ["all", ...COURSES].map(c =>
     `<button class="${filter === c ? "active" : ""}" data-f="${esc(c)}">${c === "all" ? "Tümü" : esc(c)}</button>`).join("");
-  const shown = tasks.filter(t => filter === "all" || t.course === filter);
+  const shown = tasks.filter(t => filter === "all" || t.course === filter)
+    .sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
   $("list").innerHTML = shown.length ? shown.map(t => {
-    const n = daysLeft(t.due);
-    return `<article class="card ${n < 0 ? "done" : ""}">
+    const dated = hasDue(t);
+    const n = dated ? daysLeft(t.due) : null;
+    return `<article class="card ${dated && n < 0 ? "done" : ""}">
       <div class="body">
         <div class="t">${esc(t.title)}</div>
         <div class="meta">
           <span class="chip">${esc(t.course)}</span>
-          <span class="chip ${n >= 0 && n <= 2 ? "soon" : "file"}">${dueLabel(n)} · ${dateText(t.due)}</span>
-          ${t.fileUrl ? `<a class="chip file" href="${esc(t.fileUrl)}" target="_blank" rel="noopener" style="text-decoration:none">Dosya</a>` : ""}
+          <span class="chip kind">${esc(kindOf(t))}</span>
+          <span class="chip ${dated && n >= 0 && n <= 2 ? "soon" : "file"}">${dated ? `${dueLabel(n)}, ${dateText(t.due)}` : "Tarihsiz"}</span>
+          ${t.fileUrl ? `<a class="chip file" href="${esc(t.fileUrl)}" target="_blank" rel="noopener">Dosya</a>` : ""}
           ${t.gcalId ? '<span class="chip">Takvimde</span>' : ""}
           <button class="del" data-del="${t.id}">Sil</button>
         </div>
       </div>
     </article>`;
-  }).join("") : `<div class="empty"><b>Henüz görev yok</b>Sağ alttaki + ile ilk görevi ekle.</div>`;
+  }).join("") : `<div class="empty"><b>Henüz içerik yok</b>Sağ alttaki + ile ilk içeriği ekle.</div>`;
 }
 $("filters").addEventListener("click", e => {
   const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; render(); }
@@ -183,13 +216,16 @@ $("list").addEventListener("click", async e => {
   await deleteDoc(doc(db, "tasks", t.id));
 });
 
-// ---- Yeni görev penceresi
+// ---- Yeni içerik penceresi
 $("course").innerHTML = COURSES.map(c => `<option>${esc(c)}</option>`).join("");
+$("kind").innerHTML = KINDS.map(k => `<option>${esc(k)}</option>`).join("");
 $("gcField").hidden = !GCAL;
+const updDueLbl = () => { $("dueLbl").textContent = $("kind").value === "Ödev" ? "Bitiş tarihi" : "Bitiş tarihi (isteğe bağlı)"; };
+$("kind").onchange = updDueLbl;
 const open = () => { $("mb").classList.add("open"); if (GCAL) loadGsi().catch(() => {}); };
 const close = () => {
   $("mb").classList.remove("open");
-  $("file").value = ""; $("ttl").value = ""; $("due").value = "";
+  $("file").value = ""; $("ttl").value = ""; $("due").value = ""; $("kind").selectedIndex = 0; updDueLbl();
   $("dropText").textContent = "Dosya seçmek için dokun";
   $("msg").textContent = ""; $("bar").style.display = "none"; $("bar").firstElementChild.style.width = "0";
   $("save").disabled = false;
@@ -204,16 +240,16 @@ $("file").onchange = () => {
 };
 
 $("save").onclick = async () => {
-  const f = $("file").files[0], title = $("ttl").value.trim(), due = $("due").value, course = $("course").value;
+  const f = $("file").files[0], title = $("ttl").value.trim(), due = $("due").value, course = $("course").value, kind = $("kind").value;
   const msg = $("msg"); msg.textContent = "";
   if (!f) return msg.textContent = "Bir dosya seç.";
   if (!/^(image\/(jpeg|png)|application\/pdf)$/.test(f.type)) return msg.textContent = "Sadece JPG, PNG veya PDF yükleyebilirsin.";
-  if (f.size > 15 * 1024 * 1024) return msg.textContent = "Dosya 15 MB'tan küçük olmalı.";
+  if (f.size > 10 * 1024 * 1024) return msg.textContent = "Dosya 10 MB'tan küçük olmalı.";
   if (!title) return msg.textContent = "Bir başlık yaz.";
-  if (!due) return msg.textContent = "Bitiş tarihini seç.";
+  if (kind === "Ödev" && !due) return msg.textContent = "Ödev için bitiş tarihini seç.";
 
   let tok = null;
-  if (GCAL && $("gc").checked) {
+  if (GCAL && $("gc").checked && due) {
     try { tok = await getToken(); }
     catch (err) { console.warn(err); return msg.textContent = "Google Takvim izni alınamadı. İzinsiz devam etmek için kutunun işaretini kaldır."; }
   }
@@ -242,17 +278,57 @@ $("save").onclick = async () => {
       const fileUrl = res.secure_url;
       let gcalId = null;
       if (tok) {
-        try { gcalId = await createEvent(tok, { title, course, due, fileUrl }); }
-        catch (err) { console.warn(err); alert("Görev kaydedildi ama Google Takvim'e eklenemedi."); }
+        try { gcalId = await createEvent(tok, { title, course, kind, due, fileUrl }); }
+        catch (err) { console.warn(err); alert("İçerik kaydedildi ama Google Takvim'e eklenemedi."); }
       }
       await addDoc(collection(db, "tasks"), {
-        title, course, due, fileUrl, fileType: ext === "pdf" ? "pdf" : "image",
+        title, course, kind, due: due || "", fileUrl, fileType: ext === "pdf" ? "pdf" : "image",
         fileName: f.name, gcalId, createdAt: serverTimestamp()
       });
       close();
     } catch (err) { console.error(err); fail("Kaydedilemedi. Firestore kurallarını kontrol et."); }
   };
   xhr.send(fd);
+};
+
+// ---- Ders programı editörü
+$("lessonList").innerHTML = [...COURSES, ...EXTRA_LESSONS].map(c => `<option value="${esc(c)}">`).join("");
+let sched = {}, sDay = 1;
+const D = [1, 2, 3, 4, 5];
+const padDay = a => { const x = Array.from(a || []).map(v => String(v || "")); while (x.length < SCHEDULE_SLOTS) x.push(""); return x.slice(0, SCHEDULE_SLOTS); };
+
+function renderSched() {
+  $("dayTabs").innerHTML = D.map((d, i) => `<button class="${d === sDay ? "active" : ""}" data-d="${d}">${DAY_NAMES[i]}</button>`).join("");
+  $("slots").innerHTML = sched[sDay].map((v, i) =>
+    `<div class="slot-row"><b>${i + 1}</b><input type="text" list="lessonList" data-i="${i}" value="${esc(v)}" placeholder="Boş"></div>`).join("");
+}
+$("dayTabs").addEventListener("click", e => { const b = e.target.closest("[data-d]"); if (b) { sDay = +b.dataset.d; renderSched(); } });
+$("slots").addEventListener("input", e => { const i = e.target.dataset.i; if (i !== undefined) sched[sDay][+i] = e.target.value; });
+
+$("schedBtn").onclick = async () => {
+  $("smsg").textContent = ""; $("smsg").className = "msg";
+  D.forEach(d => sched[d] = padDay());
+  $("sb").classList.add("open"); renderSched();
+  try {
+    const s = await getDoc(doc(db, "settings", "schedule"));
+    if (s.exists()) { const days = s.data().days || {}; D.forEach(d => sched[d] = padDay(days[d])); renderSched(); }
+  } catch (err) { console.error(err); $("smsg").textContent = "Mevcut program okunamadı. Firestore kurallarında settings izni var mı?"; }
+};
+$("sCancel").onclick = () => $("sb").classList.remove("open");
+$("sb").addEventListener("click", e => { if (e.target === $("sb")) $("sb").classList.remove("open"); });
+$("sSave").onclick = async () => {
+  const days = {};
+  D.forEach(d => days[d] = sched[d].map(v => v.trim()));
+  $("sSave").disabled = true; $("smsg").textContent = ""; $("smsg").className = "msg";
+  try {
+    await setDoc(doc(db, "settings", "schedule"), { days, updatedAt: serverTimestamp() });
+    $("smsg").className = "msg ok"; $("smsg").textContent = "Kaydedildi.";
+    setTimeout(() => $("sb").classList.remove("open"), 700);
+  } catch (err) {
+    console.error(err);
+    $("smsg").textContent = "Kaydedilemedi (" + (err.code || err.message) + "). Firestore kurallarına settings ekledin mi?";
+  }
+  $("sSave").disabled = false;
 };
 </script>
 </body>
