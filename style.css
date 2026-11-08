@@ -282,3 +282,20 @@ a.chip { text-decoration: none; }
 .slot-row input { flex: 1; width: 100%; padding: 11px 14px; border-radius: 10px; font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Günlük program ve karne */
+.rt { margin-top: 64px; }
+.rt-row { display: flex; gap: 14px; align-items: baseline; padding: 12px 14px; margin-top: 8px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); }
+.rt-row b { width: 52px; flex: none; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rt-row.now { border-color: var(--accent); background: var(--accent-soft); }
+.rt-row.now b { color: var(--accent); }
+.kg { display: grid; gap: 10px; margin-top: 14px; }
+@media (min-width: 700px) { .kg { grid-template-columns: 1fr 1fr; } }
+.kc { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: var(--radius); padding: 14px 16px; }
+.kc .nums { display: flex; gap: 14px; margin-top: 12px; font-size: .92rem; color: var(--muted); align-items: baseline; }
+.kc .nums b { color: var(--ink); }
+.kc .net { margin-left: auto; font-weight: 700; color: var(--accent); font-size: 1.05rem; }
+.avg { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.field input[type=number] { width: 100%; padding: 12px 14px; border-radius: 10px; font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.slot-row input[type=time] { flex: none; width: 112px; }
+.slot-row button { color: var(--danger); padding: 6px 8px; }
