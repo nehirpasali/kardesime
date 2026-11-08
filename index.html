@@ -72,6 +72,11 @@ function toggleTheme(){var r=document.documentElement;var c=r.getAttribute("data
     <div id="sched"></div>
   </section>
 
+  <section class="rt" id="pool">
+    <div class="sec-head"><h2>Soru havuzu</h2><p class="sub">Bir ders seç, kendini dene</p></div>
+    <div id="poolBox"></div>
+  </section>
+
   <section class="rt" id="karne">
     <div class="sec-head"><h2>Karnem</h2><p class="sub">Çözdüğün testlerin sonuçları</p></div>
     <div class="avg" id="kAvg"></div>
@@ -91,7 +96,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getFirestore, collection, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, COURSES, COURSE_COLORS, STUDENT_NAME, daysLeft, esc, dueLabel, dateText, parseDay } from "./firebase-config.js";
 import { QUOTES } from "./quotes.js";
-import { KINDS, DAY_NAMES, DAY_SHORT, ALL_DAYS, hasDue, kindOf } from "./extras.js";
+import { KINDS, DAY_NAMES, DAY_SHORT, ALL_DAYS, netOf, hasDue, kindOf } from "./extras.js";
 
 const db = getFirestore(initializeApp(firebaseConfig));
 const $ = id => document.getElementById(id);
@@ -252,6 +257,7 @@ function renderNav() {
     item("data-view", "all", "Tüm görevler", pendingDated().length) +
     item("data-go", "routine", "Günlük program", 0) +
     item("data-go", "schedule", "Ders programı", 0) +
+    item("data-go", "pool", "Soru havuzu", 0) +
     item("data-go", "karne", "Karnem", 0) +
     `<div class="nav-sep"></div>` +
     COURSES.map(c => item("data-view", c, c, count(c), colorOf(c))).join("");
@@ -330,6 +336,41 @@ function renderKarne() {
 }
 $("rtTabs").addEventListener("click", e => { const b = e.target.closest("[data-rd]"); if (b) { rtDay = +b.dataset.rd; renderRoutine(); } });
 
+let poolQs = [], pCourse = null, quiz = null;
+onSnapshot(collection(db, "questions"), s => { poolQs = s.docs.map(d => ({ id: d.id, ...d.data() })); renderPool(); }, err => console.error(err));
+
+function renderPool() {
+  const cnt = c => poolQs.filter(q => q.course === c).length;
+  let h = `<div class="filters">${COURSES.map(c => `<button class="${c === pCourse ? "active" : ""}" data-pc="${esc(c)}">${esc(c)}<small>${cnt(c)}</small></button>`).join("")}</div>`;
+  if (quiz && quiz.i >= quiz.qs.length) {
+    h += `<article class="kc" style="--c:${colorOf(pCourse)};margin-top:16px"><div class="t">Test bitti</div>
+      <div class="nums"><span>Doğru <b>${quiz.c}</b></span><span>Yanlış <b>${quiz.w}</b></span><span>Boş <b>${quiz.b}</b></span><span class="net">Net ${netOf(quiz.c, quiz.w)}</span></div>
+      <div class="meta" style="margin-top:14px"><button class="chip file" data-start>Yeni test</button><button class="chip file" data-quit>Kapat</button></div></article>`;
+  } else if (quiz) {
+    const q = quiz.qs[quiz.i], shown = quiz.ans != null || quiz.skip;
+    h += `<article class="kc" style="--c:${colorOf(pCourse)};margin-top:16px"><div class="sub">Soru ${quiz.i + 1} / ${quiz.qs.length}</div>
+      <div class="t" style="margin:8px 0 6px">${esc(q.q)}</div>
+      ${q.options.map((o, k) => `<button class="sd-row" ${shown ? "disabled" : `data-opt="${k}"`} style="--c:${shown ? (k === q.answer ? "#4FB286" : k === quiz.ans ? "#E2574C" : "#8C86A6") : "#8C86A6"}"><b>${"ABCD"[k]}</b><span>${esc(o)}</span></button>`).join("")}
+      ${shown ? `<p class="sub" style="margin:12px 0">${esc(q.explain || "")}</p><button class="chip file" data-next>${quiz.i + 1 < quiz.qs.length ? "Sonraki soru" : "Sonucu gör"}</button>`
+              : `<button class="past-toggle" data-skip style="margin-top:12px">Boş bırak</button>`}</article>`;
+  } else if (pCourse) {
+    h += cnt(pCourse) ? `<button class="btn" data-start style="margin-top:16px;max-width:280px">${Math.min(10, cnt(pCourse))} soruluk test başlat</button>`
+      : `<div class="empty"><b>Bu derste henüz soru yok</b>Eklenince burada görünecek.</div>`;
+  } else h += `<div class="empty"><b>Bir ders seç</b>O dersin sorularıyla test çözebilirsin.</div>`;
+  $("poolBox").innerHTML = h;
+}
+$("poolBox").addEventListener("click", e => {
+  const t = k => e.target.closest(`[data-${k}]`);
+  if (t("pc")) { pCourse = t("pc").dataset.pc; quiz = null; }
+  else if (t("start")) quiz = { qs: [...poolQs.filter(q => q.course === pCourse)].sort(() => Math.random() - .5).slice(0, 10), i: 0, c: 0, w: 0, b: 0, ans: null, skip: false };
+  else if (t("opt")) { const k = +t("opt").dataset.opt; quiz.ans = k; k === quiz.qs[quiz.i].answer ? quiz.c++ : quiz.w++; }
+  else if (t("skip")) { quiz.skip = true; quiz.b++; }
+  else if (t("next")) { quiz.i++; quiz.ans = null; quiz.skip = false; }
+  else if (t("quit")) quiz = null;
+  else return;
+  renderPool();
+});
+
 // Etkileşimler
 const drawer = $("drawer"), scrim = $("scrim");
 const toggleDrawer = o => { drawer.classList.toggle("open", o); scrim.classList.toggle("open", o); };
@@ -388,7 +429,7 @@ $("list").addEventListener("click", e => {
 });
 $("lb").onclick = () => $("lb").classList.remove("open");
 
-render(); renderSchedule(); renderRoutine(); renderKarne();
+render(); renderSchedule(); renderRoutine(); renderKarne(); renderPool();
 setInterval(renderRoutine, 60000);
 </script>
 </body>
