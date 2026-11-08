@@ -131,6 +131,27 @@ function toggleTheme(){var r=document.documentElement;var c=r.getAttribute("data
   </div>
 </div>
 
+<!-- Yapay zeka soru üretme -->
+<div class="modal-back" id="aiB">
+  <div class="modal" role="dialog">
+    <h2>Soru üret</h2>
+    <p class="sub" id="aiSub" style="margin:-8px 0 16px"></p>
+    <div id="aiForm">
+      <div class="field"><label for="gkey">Gemini API anahtarı (sadece bu cihazda saklanır)</label><input type="password" id="gkey" autocomplete="off"></div>
+      <div class="field"><label for="gmodel">Model</label><input type="text" id="gmodel" value="gemini-3.8-flash"></div>
+      <div class="field"><label for="gn">Soru sayısı</label><select id="gn"><option>5</option><option selected>10</option><option>15</option></select></div>
+      <div class="field"><label for="glvl">Sınıf seviyesi</label><input type="text" id="glvl" value="6. sınıf"></div>
+    </div>
+    <div id="aiOut"></div>
+    <p class="msg" id="aiMsg"></p>
+    <div class="row">
+      <button class="btn ghost" id="aiClose">Kapat</button>
+      <button class="btn" id="aiGen">Üret</button>
+      <button class="btn" id="aiSave" hidden>Havuza kaydet</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -231,6 +252,7 @@ function render() {
           ${t.fileUrl ? `<a class="chip file" href="${esc(t.fileUrl)}" target="_blank" rel="noopener">Dosya</a>` : ""}
           ${t.gcalId ? '<span class="chip">Takvimde</span>' : ""}
           ${kindOf(t) !== "Ders notu" ? `<button class="chip file" data-res="${t.id}">Sonuç gir</button>` : ""}
+          ${t.fileUrl ? `<button class="chip file" data-ai="${t.id}">Soru üret</button>` : ""}
           <button class="del" data-del="${t.id}">Sil</button>
         </div>
       </div>
@@ -433,6 +455,64 @@ $("oSave").onclick = async () => {
     setTimeout(() => $("ob").classList.remove("open"), 700);
   } catch (err) { console.error(err); $("omsg").textContent = "Kaydedilemedi (" + (err.code || err.message) + "). Kurallara settings izni ekledin mi?"; }
   $("oSave").disabled = false;
+};
+
+// ---- Gemini ile soru üretme
+let aiTask = null, aiQs = [];
+const lsGet = k => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+function renderAi() {
+  $("aiOut").innerHTML = aiQs.map((q, i) => `<article class="card" style="--c:var(--accent)"><div class="body">
+    <div class="t">${i + 1}. ${esc(q.q)}</div>
+    ${q.options.map((o, k) => `<div class="sub" style="${k === q.answer ? "color:var(--accent);font-weight:600" : ""}">${"ABCD"[k]}) ${esc(o)}</div>`).join("")}
+    <div class="sub" style="margin-top:6px">${esc(q.explain)}</div></div><button class="del" data-aix="${i}">Sil</button></article>`).join("");
+  $("aiForm").hidden = true; $("aiGen").hidden = true; $("aiSave").hidden = !aiQs.length;
+}
+$("list").addEventListener("click", e => {
+  const a = e.target.closest("[data-ai]"); if (!a) return;
+  aiTask = tasks.find(x => x.id === a.dataset.ai); if (!aiTask) return;
+  aiQs = []; $("aiOut").innerHTML = ""; $("aiMsg").textContent = ""; $("aiMsg").className = "msg";
+  $("aiForm").hidden = false; $("aiGen").hidden = false; $("aiGen").disabled = false; $("aiSave").hidden = true;
+  $("aiSub").textContent = `${aiTask.course}: ${aiTask.title}`;
+  $("gkey").value = lsGet("gkey"); if (lsGet("gmodel")) $("gmodel").value = lsGet("gmodel");
+  $("aiB").classList.add("open");
+});
+$("aiOut").addEventListener("click", e => { const x = e.target.closest("[data-aix]"); if (x) { aiQs.splice(+x.dataset.aix, 1); renderAi(); } });
+$("aiClose").onclick = () => $("aiB").classList.remove("open");
+$("aiGen").onclick = async () => {
+  const key = $("gkey").value.trim(), model = $("gmodel").value.trim() || "gemini-3.8-flash", msg = $("aiMsg");
+  if (!key) return msg.textContent = "Gemini API anahtarını yapıştır.";
+  lsSet("gkey", key); lsSet("gmodel", model);
+  $("aiGen").disabled = true; msg.className = "msg"; msg.textContent = "Dosya okunuyor, soru hazırlanıyor… (yarım dakika sürebilir)";
+  try {
+    const fr = await fetch(aiTask.fileUrl);
+    if (!fr.ok) throw new Error("Dosya indirilemedi");
+    const blob = await fr.blob();
+    const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
+    const mime = aiTask.fileType === "pdf" ? "application/pdf" : (blob.type || "image/jpeg");
+    const prompt = `Ekteki ders materyaline dayanarak ${$("glvl").value} öğrencisi için ${$("gn").value} adet çoktan seçmeli soru hazırla. Her sorunun 4 şıkkı ve tek doğru cevabı olsun (answer: doğru şıkkın 0 ile 3 arası sırası). Sadece materyaldeki bilgilere dayan, Türkçe yaz, kısa ve net bir açıklama ekle.`;
+    const body = { contents: [{ parts: [{ inline_data: { mime_type: mime, data: b64 } }, { text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json", responseSchema: { type: "ARRAY", items: { type: "OBJECT",
+        properties: { q: { type: "STRING" }, options: { type: "ARRAY", items: { type: "STRING" } }, answer: { type: "INTEGER" }, explain: { type: "STRING" } },
+        required: ["q", "options", "answer", "explain"] } } } };
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error?.message || r.status);
+    const txt = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("") || "[]";
+    aiQs = JSON.parse(txt).filter(x => x.q && Array.isArray(x.options) && x.options.length === 4 && x.answer >= 0 && x.answer < 4);
+    if (!aiQs.length) throw new Error("Geçerli soru üretilemedi");
+    msg.textContent = "Soruları kontrol et, yanlış olanları sil, sonra havuza kaydet."; renderAi();
+  } catch (err) { console.error(err); msg.textContent = "Olmadı: " + (err.message || err); $("aiGen").disabled = false; }
+};
+$("aiSave").onclick = async () => {
+  $("aiSave").disabled = true;
+  try {
+    await Promise.all(aiQs.map(q => addDoc(collection(db, "questions"), { course: aiTask.course, source: aiTask.title, q: q.q, options: q.options, answer: q.answer, explain: q.explain, createdAt: serverTimestamp() })));
+    $("aiMsg").className = "msg ok"; $("aiMsg").textContent = `${aiQs.length} soru havuza kaydedildi.`;
+    setTimeout(() => $("aiB").classList.remove("open"), 900);
+  } catch (err) { console.error(err); $("aiMsg").textContent = "Kaydedilemedi (" + (err.code || err.message) + "). Kurallara questions ekledin mi?"; }
+  $("aiSave").disabled = false;
 };
 </script>
 </body>
