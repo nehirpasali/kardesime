@@ -33,6 +33,9 @@ function toggleTheme(){var r=document.documentElement;var c=r.getAttribute("data
       <p class="sub" id="count"></p>
     </div>
     <div class="top-actions">
+      <button class="icon-btn" id="rtBtn" aria-label="Günlük program" title="Günlük program">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </button>
       <button class="icon-btn" id="schedBtn" aria-label="Ders programı" title="Ders programı">
         <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
       </button>
@@ -95,12 +98,45 @@ function toggleTheme(){var r=document.documentElement;var c=r.getAttribute("data
   </div>
 </div>
 
+<!-- Sonuç girme penceresi -->
+<div class="modal-back" id="resB">
+  <div class="modal" role="dialog">
+    <h2>Sonucu gir</h2>
+    <p class="sub" id="rSub" style="margin:-8px 0 16px"></p>
+    <div class="field"><label for="rC">Doğru</label><input type="number" id="rC" min="0" inputmode="numeric"></div>
+    <div class="field"><label for="rW">Yanlış</label><input type="number" id="rW" min="0" inputmode="numeric"></div>
+    <div class="field"><label for="rB">Boş</label><input type="number" id="rB" min="0" inputmode="numeric"></div>
+    <p class="sub" id="rNet"></p>
+    <p class="msg" id="rmsg"></p>
+    <div class="row">
+      <button class="btn ghost" id="rCancel">Vazgeç</button>
+      <button class="btn" id="rSave">Kaydet ve sil</button>
+    </div>
+  </div>
+</div>
+
+<!-- Günlük program penceresi -->
+<div class="modal-back" id="ob">
+  <div class="modal" role="dialog">
+    <h2>Günlük program</h2>
+    <div class="filters" id="oTabs" style="padding-top:0"></div>
+    <div id="oRows" style="margin-top:14px"></div>
+    <button class="btn ghost" id="oAdd" style="width:100%;margin-top:4px">+ Satır ekle</button>
+    <button class="btn ghost" id="oCopy" style="width:100%;margin-top:10px">Bu günü hafta içi günlere kopyala</button>
+    <p class="msg" id="omsg"></p>
+    <div class="row">
+      <button class="btn ghost" id="oCancel">Kapat</button>
+      <button class="btn" id="oSave">Kaydet</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, COURSES, GOOGLE_CLIENT_ID, BERIL_EMAIL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET, daysLeft, esc, dueLabel, dateText } from "./firebase-config.js";
-import { KINDS, SCHEDULE_SLOTS, EXTRA_LESSONS, DAY_NAMES, hasDue, kindOf } from "./extras.js";
+import { KINDS, SCHEDULE_SLOTS, EXTRA_LESSONS, DAY_NAMES, ALL_DAYS, netOf, hasDue, kindOf } from "./extras.js";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app), db = getFirestore(app);
@@ -194,6 +230,7 @@ function render() {
           <span class="chip ${dated && n >= 0 && n <= 2 ? "soon" : "file"}">${dated ? `${dueLabel(n)}, ${dateText(t.due)}` : "Tarihsiz"}</span>
           ${t.fileUrl ? `<a class="chip file" href="${esc(t.fileUrl)}" target="_blank" rel="noopener">Dosya</a>` : ""}
           ${t.gcalId ? '<span class="chip">Takvimde</span>' : ""}
+          ${kindOf(t) !== "Ders notu" ? `<button class="chip file" data-res="${t.id}">Sonuç gir</button>` : ""}
           <button class="del" data-del="${t.id}">Sil</button>
         </div>
       </div>
@@ -203,10 +240,7 @@ function render() {
 $("filters").addEventListener("click", e => {
   const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; render(); }
 });
-$("list").addEventListener("click", async e => {
-  const b = e.target.closest("[data-del]"); if (!b) return;
-  const t = tasks.find(x => x.id === b.dataset.del);
-  if (!t || !confirm(`"${t.title}" silinsin mi?`)) return;
+async function removeTask(t) {
   if (t.gcalId && GCAL) {
     try {
       const tk = await getToken();
@@ -214,7 +248,39 @@ $("list").addEventListener("click", async e => {
     } catch (err) { console.warn(err); }
   }
   await deleteDoc(doc(db, "tasks", t.id));
+}
+let resTask = null;
+const readN = id => Math.max(0, parseInt($(id).value, 10) || 0);
+const updNet = () => { $("rNet").textContent = `Net: ${netOf(readN("rC"), readN("rW"))}`; };
+["rC", "rW", "rB"].forEach(id => $(id).addEventListener("input", updNet));
+$("list").addEventListener("click", async e => {
+  const r = e.target.closest("[data-res]");
+  if (r) {
+    resTask = tasks.find(x => x.id === r.dataset.res); if (!resTask) return;
+    $("rSub").textContent = `${resTask.course}: ${resTask.title}`;
+    ["rC", "rW", "rB"].forEach(id => $(id).value = ""); $("rmsg").textContent = ""; updNet();
+    $("resB").classList.add("open"); return;
+  }
+  const b = e.target.closest("[data-del]"); if (!b) return;
+  const t = tasks.find(x => x.id === b.dataset.del);
+  if (!t || !confirm(`"${t.title}" silinsin mi?`)) return;
+  await removeTask(t);
 });
+$("rCancel").onclick = () => $("resB").classList.remove("open");
+$("rSave").onclick = async () => {
+  const c = readN("rC"), w = readN("rW"), bl = readN("rB");
+  if (!c && !w && !bl) return $("rmsg").textContent = "Sayıları gir.";
+  if (!confirm("Sonuç karneye kaydedilecek ve bu içerik silinecek. Emin misin?")) return;
+  $("rSave").disabled = true;
+  try {
+    const d = new Date();
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    await addDoc(collection(db, "results"), { title: resTask.title, course: resTask.course, kind: kindOf(resTask), correct: c, wrong: w, blank: bl, net: netOf(c, w), date, createdAt: serverTimestamp() });
+    await removeTask(resTask);
+    $("resB").classList.remove("open");
+  } catch (err) { console.error(err); $("rmsg").textContent = "Kaydedilemedi (" + (err.code || err.message) + "). Firestore kurallarına results ekledin mi?"; }
+  $("rSave").disabled = false;
+};
 
 // ---- Yeni içerik penceresi
 $("course").innerHTML = COURSES.map(c => `<option>${esc(c)}</option>`).join("");
@@ -329,6 +395,44 @@ $("sSave").onclick = async () => {
     $("smsg").textContent = "Kaydedilemedi (" + (err.code || err.message) + "). Firestore kurallarına settings ekledin mi?";
   }
   $("sSave").disabled = false;
+};
+
+// ---- Günlük program editörü
+let rout = {}, oDay = 1;
+const R = [1, 2, 3, 4, 5, 6, 7];
+function renderRout() {
+  $("oTabs").innerHTML = ALL_DAYS.map((n, i) => `<button class="${i + 1 === oDay ? "active" : ""}" data-d="${i + 1}">${n.slice(0, 3)}</button>`).join("");
+  $("oRows").innerHTML = rout[oDay].map((x, i) =>
+    `<div class="slot-row"><input type="time" data-k="time" data-i="${i}" value="${esc(x.time)}"><input type="text" data-k="title" data-i="${i}" value="${esc(x.title)}" placeholder="Ne yapılacak?"><button data-x="${i}" aria-label="Sil">✕</button></div>`).join("");
+}
+$("oTabs").addEventListener("click", e => { const b = e.target.closest("[data-d]"); if (b) { oDay = +b.dataset.d; renderRout(); } });
+$("oRows").addEventListener("input", e => { const i = e.target.dataset.i; if (i !== undefined) rout[oDay][+i][e.target.dataset.k] = e.target.value; });
+$("oRows").addEventListener("click", e => { const x = e.target.closest("[data-x]"); if (x) { rout[oDay].splice(+x.dataset.x, 1); renderRout(); } });
+$("oAdd").onclick = () => { rout[oDay].push({ time: "", title: "" }); renderRout(); };
+$("oCopy").onclick = () => {
+  [1, 2, 3, 4, 5].forEach(d => { if (d !== oDay) rout[d] = rout[oDay].map(x => ({ ...x })); });
+  $("omsg").className = "msg ok"; $("omsg").textContent = "Hafta içi günlere kopyalandı, kaydetmeyi unutma.";
+};
+$("rtBtn").onclick = async () => {
+  R.forEach(d => rout[d] = []); $("omsg").textContent = ""; $("omsg").className = "msg";
+  $("ob").classList.add("open"); renderRout();
+  try {
+    const s = await getDoc(doc(db, "settings", "routine"));
+    if (s.exists()) { const days = s.data().days || {}; R.forEach(d => rout[d] = Array.from(days[d] || []).map(x => ({ time: x.time || "", title: x.title || "" }))); renderRout(); }
+  } catch (err) { console.error(err); $("omsg").textContent = "Mevcut program okunamadı. Kurallara settings izni var mı?"; }
+};
+$("oCancel").onclick = () => $("ob").classList.remove("open");
+$("ob").addEventListener("click", e => { if (e.target === $("ob")) $("ob").classList.remove("open"); });
+$("oSave").onclick = async () => {
+  const days = {};
+  R.forEach(d => days[d] = rout[d].filter(x => x.time && x.title.trim()).map(x => ({ time: x.time, title: x.title.trim() })).sort((a, b) => a.time.localeCompare(b.time)));
+  $("oSave").disabled = true; $("omsg").className = "msg"; $("omsg").textContent = "";
+  try {
+    await setDoc(doc(db, "settings", "routine"), { days, updatedAt: serverTimestamp() });
+    $("omsg").className = "msg ok"; $("omsg").textContent = "Kaydedildi.";
+    setTimeout(() => $("ob").classList.remove("open"), 700);
+  } catch (err) { console.error(err); $("omsg").textContent = "Kaydedilemedi (" + (err.code || err.message) + "). Kurallara settings izni ekledin mi?"; }
+  $("oSave").disabled = false;
 };
 </script>
 </body>
