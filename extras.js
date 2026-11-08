@@ -17,3 +17,7 @@ export const DAY_SHORT = ["Pzt", "Sal", "Çar", "Per", "Cum"];
 
 export const hasDue = t => !!(t && t.due);
 export const kindOf = t => (t && t.kind) || "Ödev";
+
+export const ALL_DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
+// Net: 3 yanlış 1 doğruyu götürür (4 seçenekli sınavlar)
+export const netOf = (d, y) => Math.round((d - y / 3) * 100) / 100;
