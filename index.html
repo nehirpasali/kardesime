@@ -61,9 +61,21 @@ function toggleTheme(){var r=document.documentElement;var c=r.getAttribute("data
     <main id="list" class="rail"></main>
   </div>
 
+  <section class="rt" id="routine">
+    <div class="sec-head"><h2>Günlük program</h2></div>
+    <div class="filters" id="rtTabs"></div>
+    <div id="rtList"></div>
+  </section>
+
   <section class="sched" id="schedule">
     <div class="sec-head"><h2>Ders programı</h2></div>
     <div id="sched"></div>
+  </section>
+
+  <section class="rt" id="karne">
+    <div class="sec-head"><h2>Karnem</h2><p class="sub">Çözdüğün testlerin sonuçları</p></div>
+    <div class="avg" id="kAvg"></div>
+    <div class="kg" id="kList"></div>
   </section>
 </div>
 
@@ -79,7 +91,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getFirestore, collection, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, COURSES, COURSE_COLORS, STUDENT_NAME, daysLeft, esc, dueLabel, dateText, parseDay } from "./firebase-config.js";
 import { QUOTES } from "./quotes.js";
-import { KINDS, DAY_NAMES, DAY_SHORT, hasDue, kindOf } from "./extras.js";
+import { KINDS, DAY_NAMES, DAY_SHORT, ALL_DAYS, hasDue, kindOf } from "./extras.js";
 
 const db = getFirestore(initializeApp(firebaseConfig));
 const $ = id => document.getElementById(id);
@@ -238,7 +250,9 @@ function renderNav() {
     `<button class="nav-item ${attr === "data-view" && view === key ? "active" : ""}" ${attr}="${esc(key)}"><span>${color ? `<i class="dot" style="--c:${color}"></i>` : ""}${esc(label)}</span><small>${n || ""}</small></button>`;
   $("nav").innerHTML =
     item("data-view", "all", "Tüm görevler", pendingDated().length) +
+    item("data-go", "routine", "Günlük program", 0) +
     item("data-go", "schedule", "Ders programı", 0) +
+    item("data-go", "karne", "Karnem", 0) +
     `<div class="nav-sep"></div>` +
     COURSES.map(c => item("data-view", c, c, count(c), colorOf(c))).join("");
 }
@@ -286,6 +300,35 @@ function renderSchedule() {
   l += `</div>`;
   box.innerHTML = g + l;
 }
+
+let routine = null, results = [], rtDay = jd === 0 ? 7 : jd;
+onSnapshot(doc(db, "settings", "routine"), s => { routine = s.exists() ? s.data() : null; renderRoutine(); }, () => { routine = null; renderRoutine(); });
+onSnapshot(collection(db, "results"), s => { results = s.docs.map(d => ({ id: d.id, ...d.data() })); renderKarne(); }, err => console.error(err));
+
+function renderRoutine() {
+  $("rtTabs").innerHTML = ALL_DAYS.map((n, i) => `<button class="${i + 1 === rtDay ? "active" : ""}" data-rd="${i + 1}">${n.slice(0, 3)}</button>`).join("");
+  const items = Array.from(routine?.days?.[rtDay] || []).filter(x => x && x.title).sort((a, b) => a.time.localeCompare(b.time));
+  const n = new Date(), nowT = `${pad(n.getHours())}:${pad(n.getMinutes())}`;
+  let cur = -1;
+  if (rtDay === (jd === 0 ? 7 : jd)) items.forEach((x, i) => { if (x.time <= nowT) cur = i; });
+  $("rtList").innerHTML = items.length
+    ? items.map((x, i) => `<div class="rt-row ${i === cur ? "now" : ""}"><b>${esc(x.time)}</b><span>${esc(x.title)}</span></div>`).join("")
+    : `<div class="empty"><b>Bu gün için plan yok</b>Eklenince burada görünecek.</div>`;
+}
+
+function renderKarne() {
+  const by = {};
+  results.forEach(r => (by[r.course] ||= []).push(r));
+  $("kAvg").innerHTML = Object.entries(by).map(([c, a]) =>
+    `<span class="chip course" style="--c:${colorOf(c)}">${esc(c)}: ort. net ${(a.reduce((s, r) => s + r.net, 0) / a.length).toFixed(1)}</span>`).join("");
+  const sorted = [...results].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  $("kList").innerHTML = sorted.length ? sorted.map(r => `<article class="kc" style="--c:${colorOf(r.course)}">
+    <div class="t">${esc(r.title)}</div>
+    <div class="meta"><span class="chip course" style="--c:${colorOf(r.course)}">${esc(r.course)}</span><span class="chip kind">${esc(r.kind || "Test")}</span>${r.date ? `<span class="chip kind">${dateText(r.date)}</span>` : ""}</div>
+    <div class="nums"><span>Doğru <b>${r.correct}</b></span><span>Yanlış <b>${r.wrong}</b></span><span>Boş <b>${r.blank}</b></span><span class="net">Net ${r.net}</span></div>
+  </article>`).join("") : `<div class="empty"><b>Henüz sonuç yok</b>Testler değerlendirilince burada görünecek.</div>`;
+}
+$("rtTabs").addEventListener("click", e => { const b = e.target.closest("[data-rd]"); if (b) { rtDay = +b.dataset.rd; renderRoutine(); } });
 
 // Etkileşimler
 const drawer = $("drawer"), scrim = $("scrim");
@@ -345,7 +388,8 @@ $("list").addEventListener("click", e => {
 });
 $("lb").onclick = () => $("lb").classList.remove("open");
 
-render(); renderSchedule();
+render(); renderSchedule(); renderRoutine(); renderKarne();
+setInterval(renderRoutine, 60000);
 </script>
 </body>
 </html>
